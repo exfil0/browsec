@@ -1,4 +1,4 @@
-# Covert Browser Fingerprinting and Data Siphon (Production-Ready)
+# Covert Browser Fingerprinting and Data Siphon (POC)
 
 This project provides a stealth-optimized framework for collecting detailed browser and system information from website visitors without explicit consent, compressing the data, and exfiltrating it to a remote server. It leverages advanced fingerprinting techniques, client-side GZIP compression, resilient retry mechanisms with exponential backoff, randomized delays for enhanced stealth, and remote error reporting.
 
